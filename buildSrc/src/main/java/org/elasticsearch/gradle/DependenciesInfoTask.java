@@ -32,9 +32,6 @@ import org.gradle.api.tasks.TaskAction;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -77,7 +74,6 @@ public class DependenciesInfoTask extends DefaultTask {
 
     @TaskAction
     public void generateDependenciesInfo() {
-
         final DependencySet runtimeDependencies = runtimeConfiguration.getAllDependencies();
         // we have to resolve the transitive dependencies and create a group:artifactId:version map
         final Set<String> compileOnlyArtifacts =
@@ -85,14 +81,13 @@ public class DependenciesInfoTask extends DefaultTask {
                 .getResolvedConfiguration()
                 .getResolvedArtifacts()
                 .stream()
-                .map(config -> {
-                    return Arrays.asList(
+                .map(config ->
+                    Arrays.asList(
                         config.getModuleVersion().getId().getGroup(),
                         config.getModuleVersion().getId().getName(),
                         config.getModuleVersion().getId().getVersion())
                     .stream()
-                    .collect(Collectors.joining(":"));
-                })
+                    .collect(Collectors.joining(":")))
                 .collect(Collectors.toSet());
 
 
@@ -149,23 +144,19 @@ public class DependenciesInfoTask extends DefaultTask {
      * @return SPDX identifier, UNKNOWN or a Custom license
      */
     protected String getLicenseType(final String group, final String name) {
-        String unknown = "UNKNOWN";
-        try (final Stream<Path> stream = Files.list(licensesDir.toPath())) {
-            final PathMatcher licenseFilter = licensesDir.toPath().getFileSystem().getPathMatcher("glob:*-LICENSE*");
-            return stream
-                .filter(licenseFilter::matches)
-                .filter(path -> {
-                    String prefix = path.getFileName().toString().split("-LICENSE.*")[0];
-                    return group.contains(prefix) || name.contains(prefix);
-                })
-                .findFirst()
-                .flatMap(this::pathToLicenseType)
-                .orElse(unknown);
-        } catch (IOException exception) {
-            getLogger().error("failed to obtain files in licenses directory");
+        String unknownType = "UNKNOWN";
+        if(!licensesDir.exists()) {
+            return unknownType;
         }
 
-        return unknown;
+        return Arrays.stream(licensesDir.listFiles())
+        .filter(file -> {
+            String prefix = file.getName().split("-LICENSE.*")[0];
+            return group.contains(prefix) || name.contains(prefix); })
+        .findFirst()
+        .map(file -> file.getAbsoluteFile())
+        .flatMap(this::pathToLicenseType)
+        .orElse(unknownType);
     }
 
     /**
@@ -183,11 +174,10 @@ public class DependenciesInfoTask extends DefaultTask {
             .findFirst();
     }
 
-    private Optional<String> pathToLicenseType(Path licenseFile) {
+    private Optional<String> pathToLicenseType(final File licenseFile) {
         // replace * because they are sometimes used at the beginning lines as if the license was a multi-line comment
         try {
-            String fileContents = Files.readAllLines(licenseFile)
-                .stream()
+            String fileContents = Stream.of(FileUtils.readFileToString(licenseFile))
                 .map(line -> {
                     return line
                         .replaceAll("\\s+", " ")
@@ -208,29 +198,28 @@ public class DependenciesInfoTask extends DefaultTask {
 
     }
 
-    private Optional<String> getCustomLicenseType(Path licenseFile) {
+    private Optional<String> getCustomLicenseType(final File licenseFile) {
         // License has not be identified as SPDX.
         // As we have the license file, we create a Custom entry with the URL to this license file.
         final String gitBranch = System.getProperty("build.branch', 'master");
         final String githubBaseURL = String.format("https://raw.githubusercontent.com/elastic/elasticsearch/%s/", gitBranch);
         try {
-            return Optional.of(String.format("Custom;", licenseFile
-                .toRealPath()
-                .toString()
-                .replaceFirst(".*/elasticsearch/", githubBaseURL)));
+            return Optional.of(
+                String.format("Custom;", licenseFile
+                    .getCanonicalPath()
+                    .replaceFirst("\\.\\*\\/elasticsearch\\/", githubBaseURL)));
         } catch(IOException exception) {
             getLogger().error("failed to get license file's real path", exception);
         }
         return Optional.empty();
-
-
     }
+
     private Map<String, String> getSPDXIdentifierToLicenseRegexMap() {
         Map<String, String> spdxToRegex = generateSPDXToRegexBaseMap();
         return surroundRegexWithAnyMatch(spdxToRegex);
     }
 
-    private Map<String, String> surroundRegexWithAnyMatch(Map<String, String> SPDXToRegex ) {
+    private Map<String, String> surroundRegexWithAnyMatch(final Map<String, String> SPDXToRegex) {
         return SPDXToRegex
             .entrySet()
             .stream()
@@ -269,7 +258,7 @@ public class DependenciesInfoTask extends DefaultTask {
             , "THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE\\."
         ).replaceAll("\\s+", "\\\\s*");
 
-        final String BSD_3 = String.join(
+        final String BSD_3 = String.join("\n",
             "Redistribution and use in source and binary forms, with or without"
             , "modification, are permitted provided that the following conditions"
             , "are met:"
@@ -302,7 +291,7 @@ public class DependenciesInfoTask extends DefaultTask {
         final String ICU = "ICU License - ICU 1.8.1 and later";
         final String LGPL_3 = "GNU LESSER GENERAL PUBLIC LICENSE.*Version 3";
 
-        final String MIT = String.join(
+        final String MIT = String.join("\n",
             "Permission is hereby granted, free of charge, to any person obtaining a copy of"
             , "this software and associated documentation files \\(the \"Software\"\\), to deal in"
             , "the Software without restriction, including without limitation the rights to"
